@@ -1,6 +1,9 @@
-[settings]
+# note that artifactory may require a login.
 # see https://mise.en.dev/configuration/settings.html#netrc_file
-netrc_file = "~/.mise-artifactory.netrc"
+# machine <hostname>
+#   login <username>
+#   password <redacted>
+
 
 [settings.url_replacements]
 "regex:^https://github\\.com/iilei/proquint/releases/download/v([^/]+)/(.+)" = "http://localhost:8081/artifactory/example-repo-local/proquint/$1/$2"
