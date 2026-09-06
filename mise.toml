@@ -1,0 +1,39 @@
+[settings]
+# see https://mise.en.dev/configuration/settings.html#netrc_file
+netrc_file = "~/.mise-artifactory.netrc"
+
+[settings.url_replacements]
+"regex:^https://github\\.com/iilei/proquint/releases/download/v([^/]+)/(.+)" = "http://localhost:8081/artifactory/example-repo-local/proquint/$1/$2"
+
+[tools]
+"github:BurntSushi/ripgrep" = "latest"
+jfrog-cli = "latest"
+"github:iilei/proquint" = "0.2.8"
+
+[tasks.jf]
+description = "Run JFrog CLI"
+raw = true
+raw_args = true
+run = "jf"
+
+[tasks.proquint]
+description = "Run the mise-managed proquint CLI"
+raw = true
+raw_args = true
+run = "proquint"
+
+[tasks.proquint-help]
+description = "Show proquint help"
+run = "proquint --help"
+
+[tasks.proquint-encode]
+description = "Encode a decimal or hexadecimal number as a proquint"
+usage = 'arg "<number>" help="Decimal or 0x-prefixed hexadecimal number"'
+run = 'proquint encode "{{ usage.number }}"'
+
+[tasks.proquint-decode]
+description = "Decode a proquint as a number"
+usage = 'arg "<proquint>" help="Proquint value to decode"'
+run = 'proquint decode "{{ usage.proquint }}"'
+
+
