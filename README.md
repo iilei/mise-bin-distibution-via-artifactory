@@ -75,125 +75,72 @@ mise run proquint-encode $(mise run proquint-decode gabun)
 mise exec "github:iilei/proquint@0.2.8" -- where proquint
 ```
 
-## Internal mise Backend
+## Internal GitLab Releases and Artifactory
 
-For company-owned tools, GitLab is used for source control and release tags, while Artifactory is the internal distribution point for the actual binaries.
+For company-owned tools, use GitLab Releases for version discovery and Artifactory for binary distribution. This works with Mise's native `gitlab:` backend; no custom Mise plugin is required.
 
-The intended architecture is:
+See [docs/internal-tool-distribution.puml](docs/internal-tool-distribution.puml) (render with `plantuml -tpng docs/internal-tool-distribution.puml`):
 
-```text
-                         Internal GitLab
-                              │
-                              │ Git tags
-                              │ v1.2.3
-                              ▼
-                    Company mise backend
-                              │
-                              │ version discovery
-                              │ platform selection
-                              ▼
-                         Artifactory
-                              │
-                              │ GoReleaser artifacts
-                              ▼
-                         Developer
-                              │
-                              ▼
-                            mise
+![Internal Tool Distribution](docs/internal-tool-distribution.png)
+
+GitLab must contain a Release for each published tag. Tags alone are insufficient: Mise lists GitLab Releases with attached links, not arbitrary Git tags. Each release link is an external URL to an Artifactory artifact. Its `name` is the value Mise matches with `asset_pattern`.
+
+### Publish a tagged release
+
+Publish the platform archives, checksums, and signatures to Artifactory first. Then create a GitLab Release for the same tag and attach one release link for each platform archive. A tag-triggered pipeline can do both:
+
+```yaml
+release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/cli:latest
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - echo "Artifacts were uploaded to Artifactory by the preceding publish job"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: "proquint $CI_COMMIT_TAG"
+    description: "Published to Artifactory."
+    assets:
+      links:
+        - name: "proquint_${CI_COMMIT_TAG}_linux_x86_64.tar.gz"
+          url: "https://artifactory.intranet.example/artifactory/tools/proquint/${CI_COMMIT_TAG}/proquint_${CI_COMMIT_TAG}_linux_x86_64.tar.gz"
+          link_type: package
+        - name: "proquint_${CI_COMMIT_TAG}_darwin_arm64.tar.gz"
+          url: "https://artifactory.intranet.example/artifactory/tools/proquint/${CI_COMMIT_TAG}/proquint_${CI_COMMIT_TAG}_darwin_arm64.tar.gz"
+          link_type: package
 ```
 
-### Repository and release convention
+This example uses the raw tag, such as `v0.2.8`, in both the Artifactory path and asset name. GitLab's `release:assets:links` accepts CI variables but does not perform shell parameter expansion inside YAML values. If Artifactory omits the `v` prefix, create the release from a script using `glab release create` or the GitLab API, where the shell can derive a normalized version first.
 
-Each application follows standard GoReleaser conventions:
+The equivalent manual GitLab UI workflow is: create a Release for the existing `v1.2.3` tag, then add an asset link whose name identifies the archive and whose URL is the Artifactory download URL.
 
-```text
-<gitlab-host>/<group>/<repo-name>
-```
+### Consume from Mise
 
-Releases are created by pushing a SemVer tag prefixed with `v`:
-
-```text
-v1.2.3
-```
-
-GoReleaser publishes the resulting archives, checksums, and signatures to Artifactory.
-
-For example:
-
-```text
-<artifactory-host>/<artifactory-repo>/<repo-name>/<app-name>/1.2.3/
-    <app-name>_1.2.3_Linux_x86_64.tar.gz
-    <app-name>_1.2.3_Linux_arm64.tar.gz
-    <app-name>_1.2.3_Darwin_arm64.tar.gz
-    ...
-    checksums.txt
-    *.sig
-```
-
-Multiple applications can be published from the same repository and share the same release version.
-
-### Internal mise plugin
-
-A company-specific mise backend/plugin can encapsulate these conventions:
-
-```text
-GitLab
-  │
-  └── tag v1.2.3
-        │
-        ▼
-  company mise backend
-        │
-        ├── version = 1.2.3
-        ├── app = <app-name>
-        ├── OS = Linux
-        └── architecture = x86_64
-              │
-              ▼
-  Artifactory
-        │
-        └── <repo-name>/<app-name>/1.2.3/
-              <app-name>_1.2.3_Linux_x86_64.tar.gz
-```
-
-The backend can therefore translate the company's GitLab and GoReleaser conventions into the corresponding Artifactory artifact URL.
-
-### Distributing the backend
-
-Because the network is restricted, the plugin does not need to be published to the public mise plugin ecosystem.
-
-It can live in a private company GitLab repository:
-
-```text
-<gitlab-host>/<group>/mise-backend-company-tools
-```
-
-and be referenced directly from `mise.toml`:
+Point Mise at the self-hosted GitLab API and pin a release version. Use platform-specific patterns when each platform has a distinct archive:
 
 ```toml
-[plugins]
-company = "git@<gitlab-host>:<group>/mise-backend-company-tools.git#<commit-sha>"
+[tools."gitlab:platform/proquint"]
+version = "0.2.8"
+api_url = "https://gitlab.intranet.example/api/v4"
 
-[tools]
-"company:<app-name>" = "1.2.3"
+[tools."gitlab:platform/proquint".platforms]
+linux-x64 = { asset_pattern = "proquint_0.2.8_linux_x86_64.tar.gz" }
+macos-arm64 = { asset_pattern = "proquint_0.2.8_darwin_arm64.tar.gz" }
 ```
 
-The plugin itself is therefore distributed through the company's existing internal Git infrastructure, while the actual application binaries continue to be distributed through Artifactory.
+Mise queries GitLab for the `v0.2.8` release, matches the corresponding release link, and downloads that link directly from Artifactory. No `url_replacements` rule is needed because the Release Link already contains the internal Artifactory URL.
 
-```text
-Private GitLab
-     │
-     │ company mise backend
-     ▼
-   mise
-     │
-     │ artifact download
-     ▼
- Artifactory
-     │
-     │ GoReleaser binaries
-     ▼
- developer machine
+For private GitLab, configure a GitLab token through `MISE_GITLAB_ENTERPRISE_TOKEN`, `glab`, Git credentials, or Mise's global token configuration. Configure Artifactory credentials separately for its hostname, for example in a `~/.netrc` file. Do not put either credential in the project `mise.toml`.
+
+### Renovate Pinning
+
+Consumers should commit a concrete version rather than use `latest`. Renovate can update the `version` field in `mise.toml` after a new GitLab Release is published:
+
+```toml
+[tools."gitlab:platform/proquint"]
+version = "0.2.8" # renovate: datasource=gitlab-releases depName=platform/proquint registryUrl=https://gitlab.intranet.example
+api_url = "https://gitlab.intranet.example/api/v4"
 ```
 
-This keeps GitLab responsible for **source code and versioning**, the mise backend responsible for **company-specific resolution**, and Artifactory responsible for **binary distribution**.
+This makes the installed artifact reproducible at review time while leaving Renovate responsible for proposing version bumps. Give Renovate a GitLab token with read access to the internal project and configure its GitLab endpoint to reach the intranet host. Protect release tags and publish Artifactory artifacts immutably so that a pinned version always identifies the same bytes.

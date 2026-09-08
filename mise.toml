@@ -9,7 +9,6 @@
 "regex:^https://github\\.com/iilei/proquint/releases/download/v([^/]+)/(.+)" = "http://localhost:8081/artifactory/example-repo-local/proquint/$1/$2"
 
 [tools]
-"github:BurntSushi/ripgrep" = "latest"
 jfrog-cli = "latest"
 "github:iilei/proquint" = "0.2.8"
 

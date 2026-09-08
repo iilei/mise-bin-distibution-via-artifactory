@@ -1,0 +1,11 @@
+@startuml
+title Internal Tool Distribution
+
+rectangle "Internal GitLab\nTag + Release\nv1.2.3" as gitlab
+rectangle "Artifactory\nproquint/1.2.3/..." as artifactory
+rectangle "Developer Machine\nMise" as developer
+
+gitlab --> artifactory : Release Link
+developer --> gitlab : Resolve pinned version
+developer --> artifactory : Download selected artifact
+@enduml
